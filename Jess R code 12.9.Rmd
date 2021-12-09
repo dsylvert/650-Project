@@ -149,6 +149,14 @@ summary(model_2)
 ```
 #BMI is still significant.
 
+## Model adjusting for Race included here (plot and lines of fit)
+```{r}
+ggplot(comp_cases,aes(y = BPSysAve, x = BMI, colour = Race1)) + 
+  geom_point()
+
+ggplot(comp_cases,aes(y = BPSysAve, x = BMI, colour = Race1)) + 
+  geom_smooth(method = "lm", fill = NA)
+```
 ##Lets include health confounders as well
 ```{r}
 #health variables:DirectChol+Diabetes+PhysActive+SmokeNow
