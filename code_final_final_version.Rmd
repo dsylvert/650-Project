@@ -139,6 +139,7 @@ Fit an unadjusted model as below.
 ##Just Outcome and POI
 model_1<-lm(BPSysAve~BMI,data=comp_cases)
 summary(model_1)
+tab_model(model_1)
 ```
 
 There is a significant positive association between SBP and BMI in the unadjusted model.
@@ -152,6 +153,7 @@ We first added the demographic variables.
 comp_cases <- within(comp_cases, Race1 <- relevel(Race1, ref = "White"))#make white the reference group
 model_2<-lm(BPSysAve~BMI+Age+Gender+Race1+Education,data=comp_cases)
 summary(model_2)
+tab_model(model_2)
 ```
 
 BMI is still significant.
@@ -163,6 +165,7 @@ Therefore, we include health confounders as well.
 model_3<-lm(BPSysAve~BMI+Age+Gender+Race1+Education+
               DirectChol+Diabetes+PhysActiveDays+SmokeNow+AlcoholYear,data=comp_cases)
 summary(model_3)
+tab_model(model_3)
 
 suppressMessages(plot_model(model=model_3,type="diag",show.data = TRUE))[1] #only interested in VIF plot
 ```
@@ -209,7 +212,7 @@ model_final<-lm(BPSysAve~BMI+
                   Age*Gender+BMI*Race1+DirectChol*Diabetes+Gender*Race1+Race1*Education,
                 data=comp_cases)
 summary(model_final)
-
+tab_model(model_final)
 plot_model(model_final,type="diag",show.data = TRUE)[2:4]
 ```
 
