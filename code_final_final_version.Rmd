@@ -1,7 +1,5 @@
 ---
-title: "650 Project"
-author: "Jess"
-date: "11/28/2021"
+title: "650 Project: Investigating the relationship between body mass index and average systolic blood pressure, considering BMI’s interaction with race"
 output: html_document
 ---
 
