@@ -3,8 +3,6 @@ title: "650 Project: Investigating the relationship between body mass index and 
 output: html_document
 ---
 
-#Investigating the relationship between body mass index and average systolic blood pressure, considering BMI’s interaction with race
-
 ## Preparation
 ### Load Libraries and Data
 ```{r load libraries and data}
