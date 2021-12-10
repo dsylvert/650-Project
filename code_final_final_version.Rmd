@@ -1,0 +1,280 @@
+---
+title: "650 Project"
+author: "Jess"
+date: "11/28/2021"
+output: html_document
+---
+
+#Investigating the relationship between body mass index and average systolic blood pressure, considering BMI’s interaction with race
+
+## Preparation
+### Load Libraries and Data
+```{r load libraries and data}
+library.list<- c('ggplot2','readxl','dplyr','tidyverse','patchwork','lme4','effects','sjPlot',"emmeans","gridExtra") #load packages
+sapply(library.list, library, character.only=T, quietly=T)
+library(NHANES)
+dat<-NHANES
+```
+
+### Variable of Interest and Data Exploration
+We first explore our outcome by printing its quantiles. Then we filtered the original data set and includes only variables of interest. Finally, we select variables with no NA in any of the variables we are interested in.
+```{r variables}
+quantile(dat$BMI, na.rm = TRUE)
+dat$bmi_quan<-ifelse(dat$BMI<21.58, 1,
+                            ifelse(21.58<=dat$BMI & dat$BMI<25.98,2,
+                                   ifelse(25.98<=dat$BMI & dat$BMI<30.89, 3,
+                                   ifelse(dat$BMI>=30.89,4,NA))))
+#select variables
+dat2 <- dat %>% select(ID,BPSysAve,BMI,bmi_quan,Age,Gender,Race1,Education,DirectChol,Diabetes,PhysActiveDays,SmokeNow,TotChol,AlcoholYear)
+
+#target_pop: nonmissing outcome and POI
+target_pop<-dat2[!is.na(dat2$BPSysAve)&!is.na(dat2$BMI),]#8487
+#target_pop: add incomplete column
+target_pop$Incomplete = rep(0,nrow(target_pop))
+for(i in 1:nrow(target_pop)){
+  if(sum(is.na(target_pop[i,]))!=0){target_pop$Incomplete[i]=1}
+}
+table(target_pop$Incomplete)
+#Complete cases for all variables
+comp_cases<-target_pop[complete.cases(target_pop),]#1276
+```
+
+Here is a table comparing distribution of data in the overall data, the data with only complete cases, and data in each quantile of BMI.
+```{r}
+#install.packages("qwraps2")
+library("qwraps2")
+orig_opt <- options()$qwraps2_markup
+options(qwraps2_markup = "markdown")
+summarytab<-
+  list("Average Systolic Blood Pressure" =
+       list("mean (sd)" = ~ qwraps2::mean_sd(BPSysAve,na_rm=TRUE)),
+       "BMI" =
+       list("mean (sd)" = ~ qwraps2::mean_sd(BMI,na_rm=TRUE)),
+       "Age" =
+       list("min"       = ~ min(Age),
+            "max"       = ~ max(Age),
+            "mean (sd)" = ~ qwraps2::mean_sd(Age,na_rm=TRUE)),
+       "Gender" =
+       list("Male" = ~ qwraps2::n_perc0(Gender == "male",na_rm=TRUE),
+            "Female"  = ~ qwraps2::n_perc0(Gender == "female",na_rm=TRUE)),
+       "Race" =
+       list("White" = ~ qwraps2::n_perc0(Race1 == "White",na_rm=TRUE),
+            "Black"  = ~ qwraps2::n_perc0(Race1 == "Black",na_rm=TRUE),
+            "Mexican"= ~ qwraps2::n_perc0(Race1 == "Mexican",na_rm=TRUE),
+            "Hispanic"= ~ qwraps2::n_perc0(Race1 == "Hispanic",na_rm=TRUE),
+            "Other" = ~ qwraps2::n_perc0(Race1 == "Other",na_rm=TRUE)),
+        "Eduaction" =
+       list("8th Grade" = ~ qwraps2::n_perc0(Education == "8th Grade",na_rm=TRUE),
+            "9 - 11th Grade"  = ~ qwraps2::n_perc0(Education == "9 - 11th Grade",na_rm=TRUE),
+            "High School"= ~ qwraps2::n_perc0(Education == "High School",na_rm=TRUE),
+            "Some College"= ~ qwraps2::n_perc0(Education == "Some College",na_rm=TRUE),
+            "College Grad" = ~ qwraps2::n_perc0(Education == "College Grad",na_rm=TRUE),
+            "Missing" = ~ qwraps2::n_perc0(is.na(Education))),
+       "HDL Cholesterol" =
+       list("mean (sd)" = ~ qwraps2::mean_sd(DirectChol,na_rm=TRUE)),
+       "Diabetes" =
+       list("Has diabetes" = ~ qwraps2::n_perc0(Diabetes == "Yes",na_rm=TRUE),
+            "Doesn't have diabetes"  = ~ qwraps2::n_perc0(Diabetes == "No",na_rm=TRUE),
+            "Missing" = ~ qwraps2::n_perc0(is.na(Diabetes))),
+       "Physical Activity Days per Week" =
+       list("mean (sd)" = ~ qwraps2::mean_sd(PhysActiveDays,na_rm=TRUE)),
+        "Smoking" =
+       list("Smoker" = ~ qwraps2::n_perc0(SmokeNow == "Yes",na_rm=TRUE),
+            "Nonsmoker"  = ~ qwraps2::n_perc0(SmokeNow == "No",na_rm=TRUE),
+            "Missing" = ~ qwraps2::n_perc0(is.na(SmokeNow))),
+        "Alcohol Use Days per year"=
+            list("mean (sd)" = ~ qwraps2::mean_sd(AlcoholYear,na_rm=TRUE))
+       )
+#only for those with Systolic Blood Pressure 
+overall_tot<-summary_table(target_pop,summarytab)
+overall_comp<-summary_table(comp_cases,summarytab)
+bmi_quan<-summary_table(comp_cases,summarytab, by=c("bmi_quan"))
+comp_tab<-cbind(overall_tot,overall_comp,bmi_quan)
+print(comp_tab,
+      title = "Summary Statistics For Complete Cases",
+      cnames = c("Overall", "Overall-Complete Cases(N=1276)","BMI Quantile 1", "BMI Quantile 2", "BMI Quantile 3","BMI Quantile 4"))
+```
+
+Now, lets look at for adults over 20, Missing vs complete cases.
+```{r data with complete values}
+total_adult<-target_pop[target_pop$Age>=20,]
+overall_adult<-summary_table(total_adult,summarytab)
+miss_comp<-summary_table(total_adult,summarytab, by=c("Incomplete"))
+tab_miss<-cbind(overall_adult,miss_comp,"P-Value" = "")
+
+# bmi_quan_tar<-summary_table(target_pop,summarytab, by=c("bmi_quan"))
+pval_2 <-c(t.test(BPSysAve ~ Incomplete, data = total_adult)$p.value, 
+          t.test(BMI ~ Incomplete, data = total_adult)$p.value, NA, NA,
+              t.test(Age ~ Incomplete, data = total_adult)$p.value, 
+              chisq.test(total_adult$Gender,total_adult$Incomplete)$p.value,NA,
+              chisq.test(total_adult$Race1,total_adult$Incomplete)$p.value,NA,NA,NA,NA,
+              chisq.test(total_adult$Education,total_adult$Incomplete)$p.value,NA,NA,NA,NA,NA,
+              t.test(DirectChol ~ Incomplete, data = total_adult)$p.value,
+              chisq.test(total_adult$Diabetes,total_adult$Incomplete)$p.value,NA,NA,
+              t.test(PhysActiveDays ~ Incomplete, data = total_adult)$p.value,
+              chisq.test(total_adult$SmokeNow,total_adult$Incomplete)$p.value, NA,NA,
+              t.test(AlcoholYear ~ Incomplete, data = total_adult)$p.value)
+pval_2ad<-p.adjust(pval_2, method = "BH")
+pval_2ad<-round(pval_2ad,digits=2)
+pval_2ad<-ifelse(is.na(pval_2ad), " ",ifelse(pval_2ad<0.001,"<0.001",pval_2ad))
+
+tab_miss[82:108]<-pval_2ad
+print(tab_miss,
+      rtitle = "Summary Statistics",
+      cnames = c("Total Cases(N=6,919)","Complete Cases(N=1276)","Incomplete Cases(N=5643)","P Values"))
+
+```
+
+## Model Diagnostics
+### Unadjusted model: SBP ~ BMI
+See from the plot below, we find there is a linear relationship between SBP and BMI, so we start our model from here.
+```{r scatterplot SBPvsBMI}
+comp_cases%>%ggplot(aes(x=BMI,
+                        y=BPSysAve))+
+              geom_point()
+```
+
+Fit an unadjusted model as below.
+```{r SBPvsBMI model}
+##Just Outcome and POI
+model_1<-lm(BPSysAve~BMI,data=comp_cases)
+summary(model_1)
+```
+
+There is a significant positive association between SBP and BMI in the unadjusted model.
+
+### Adjusted Model
+#### Add demographic variables
+We first added the demographic variables.
+```{r adjusted model}
+#added the other covariates in groups, in a sequential pattern
+#Demographic
+comp_cases <- within(comp_cases, Race1 <- relevel(Race1, ref = "White"))#make white the reference group
+model_2<-lm(BPSysAve~BMI+Age+Gender+Race1+Education,data=comp_cases)
+summary(model_2)
+```
+
+BMI is still significant.
+
+#### Add health-related confounders
+Therefore, we include health confounders as well.
+```{r add health variables}
+#health variables:DirectChol+Diabetes+PhysActiveDays+SmokeNow
+model_3<-lm(BPSysAve~BMI+Age+Gender+Race1+Education+
+              DirectChol+Diabetes+PhysActiveDays+SmokeNow+AlcoholYear,data=comp_cases)
+summary(model_3)
+
+suppressMessages(plot_model(model=model_3,type="diag",show.data = TRUE))[1] #only interested in VIF plot
+```
+
+Again, BMI is still significant after adjusting for possible confounders. Note that other significant confounders:Age,Gender, Race1,Education,DirectChol.
+
+## Adjusted Model with Interaction
+Interaction terms: literature reviewed and some explorations
+```{r}
+#interaction terms:Literature reviewed
+# Age*gender
+comp_cases %>%
+     ggplot(aes(x=Age, 
+               y=BPSysAve, 
+               color=Gender))+
+     geom_smooth(method="lm")
+# BMI*race
+comp_cases %>%
+     ggplot(aes(x=BMI, 
+               y=BPSysAve, 
+               color=Race1))+
+     geom_smooth(method="lm",se = FALSE)
+# Diabetes*cholesterol
+comp_cases %>%
+     ggplot(aes(x=DirectChol,
+               y=BPSysAve,
+               color=Diabetes))+
+     geom_smooth(method="lm",se = FALSE)
+#Gender*Race
+interaction.plot(x.factor = comp_cases$Gender, 
+                 trace.factor = comp_cases$Race1,
+                 response = comp_cases$BPSysAve)
+#Race*education
+interaction.plot(x.factor = comp_cases$Race1, 
+                 trace.factor = comp_cases$Education,
+                 response = comp_cases$BPSysAve)
+```
+
+We found other significant interactions with race in the literature, so let's also add them in here. This is the final model.
+```{r}
+model_final<-lm(BPSysAve~BMI+
+                  Age+Gender+Race1+Education+
+                  DirectChol+Diabetes+PhysActiveDays+AlcoholYear+SmokeNow+
+                  Age*Gender+BMI*Race1+DirectChol*Diabetes+Gender*Race1+Race1*Education,
+                data=comp_cases)
+summary(model_final)
+
+plot_model(model_final,type="diag",show.data = TRUE)[2:4]
+```
+
+```{r}
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+tab_model(model_final) # print out the summary table
+```
+
+```{r}
+#check whether there exists significant differences for adding an BMI:Race1 interaction: p = 0.233, not significant.
+Null.mod<-lm(BPSysAve~BMI+
+                  Age+Gender+Race1+Education+
+                  DirectChol+Diabetes+PhysActiveDays+AlcoholYear+SmokeNow+
+                  Age*Gender+DirectChol*Diabetes+Gender*Race1+Race1*Education,
+                data=comp_cases)
+anova(model_final,Null.mod)
+#obtain the p-value of catagorical variables as a whole 
+anova(model_final)
+```
+
+model diagnosis for final model:
+
+LINE assumption:
+```{r}
+library(car)
+avPlots(model_final) #use partial regression plots to check linearity 
+```
+```{r}
+library(stats)
+dat1 = comp_cases
+dat1$stu_res = rstudent(model_final) #obtain externally studentized residuals 
+Residuals = dat1$stu_res #rename externally studentized residuals
+lag.plot(Residuals, main = "Lag-1 plot")  #check independence
+
+plot_model(model_final,type="diag",show.data = TRUE)[2] #qq plot, check normality
+plot_model(model_final,type="diag",show.data = TRUE)[3] #histogram, also check normality
+plot_model(model_final,type="diag",show.data = TRUE)[4] #residual plot, check equal variance
+```
+multicolinearity:
+```{r}
+model_3<-lm(BPSysAve~BMI+Age+Gender+Race1+Education+
+              DirectChol+Diabetes+PhysActiveDays+SmokeNow+AlcoholYear,data=comp_cases) # model_3 without interactoin
+plot_model(model_3,type="diag",show.data = TRUE)[1] #obtain vif plot, check multicolinearity
+```
+influencial diagnostics:
+```{r}
+model.h = hatvalues(model_final) # leverage point
+Hmisc::describe(model.h) # descriptive information
+max(model.h)
+#m.h[which(model.h>0.5)]#high leverage-0
+model.h[which(model.h>0.2)]   #moderate leverage-14
+
+dat_high_lev = dat1[c(138,139,256,271,287,414,690,940,958,1094,1095,1136,1167,1221),]
+dat_high_lev # output moderate leverage points
+```
+
+```{r}
+Hmisc::describe(dat1$stu_res) 
+outlier_1 = dat1[abs(Residuals)>4,]  
+as.data.frame(outlier_1) # obtain outliers with cut-off value = 4: 7 observations with ID 51933, 62727, 68301
+
+car::influencePlot(model_final, main = "Regression influence plot") # obtain influential plot and influential points
+
+olsrr::ols_plot_dffits(model_final) # DFFITS plot
+olsrr::ols_plot_cooksd_chart(model_final) # Cook's distance plot
+```
